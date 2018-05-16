@@ -58,6 +58,34 @@ end
 class ElasticSearchQueryTransformer < Parslet::Transform
 end
 
+
+# % echo "title,content: hoge piyo subtitleu:aaa and \"bbb bb2\" and 'ccc ddd'" | be ruby main.rb
+# ------------------------ raw query
+# title,content: hoge piyo subtitleu:aaa and "bbb bb2" and 'ccc ddd'
+# ------------------------ raw => syntax tree
+# {:and_queries=>
+#   [{:and_query=>
+#      {:field_list=>[{:field=>"title"@0}, {:field=>"content"@6}],
+#       :or_conditions=>
+#        [{:and_conditions=>{:condition=>"hoge"@15}},
+#         {:and_conditions=>{:condition=>"piyo"@20}}]}},
+#    {:and_query=>
+#      {:field_list=>{:field=>"subtitleu"@25},
+#       :or_conditions=>
+#        {:and_conditions=>
+#          [{:condition=>"aaa"@35},
+#           {:condition=>{:str=>"bbb bb2"@44}},
+#           {:condition=>{:str=>"ccc ddd"@58}}]}}}]}
+# ------------------------ syntax tree => simplyfy AST
+# {:and_queries=>
+#   [{:and_query=>
+#      {:field_list=>["title", "content"], :or_conditions=>["hoge", "piyo"]}},
+#    {:and_query=>
+#      {:field_list=>["subtitleu"],
+#       :or_conditions=>[{:and_conditions=>["aaa", "bbb bb2", "ccc ddd"]}]}}]}
+# ------------------------ simplyfy AST => ElasticSearch Query
+# not implemented
+
 raw = STDIN.read.chomp
 puts "------------------------ raw query"
 puts raw
