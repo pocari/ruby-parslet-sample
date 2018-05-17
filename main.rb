@@ -35,7 +35,7 @@ class QueryParser < BaseParser
   # ここで特別にandを無視しておかないと検索ワードとしてandが含まれてしまうため除く
   # andを値として使いたい場合は"", ''で囲ってquoted_string側に入るようにする
   rule(:raw_condition) { str('and').absent? >> match('[^:\s]').repeat(1) }
-  rule(:identifier) { match('[_0-9a-zA-Z]').repeat(1) }
+  rule(:identifier) { match('[_0-9a-zA-Z.]').repeat(1) }
 end
 
 EsQuery = Struct.new(:bool) do
