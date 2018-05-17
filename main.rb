@@ -20,7 +20,7 @@ class QueryParser < BaseParser
   root(:and_queries)
 
   rule(:and_queries) { (query.as(:and_query) >> (space >> query.as(:and_query)).repeat).as(:and_queries) >> space?}
-  rule(:query) { field.as(:field_list) >> and_conditions }
+  rule(:query) { field.as(:field_list).maybe >> and_conditions }
 
   rule(:field) { multi_field >> str(':') >> space? }
   rule(:multi_field)  { identifier.as(:field) >> (str(',') >> identifier.as(:field)).repeat }
@@ -148,6 +148,18 @@ module CustomMethodsInRule
       # [obj]はArray(obj)にしないように。(objがhashの時に挙動が変わる)
       obj&.is_a?(Array) ? obj : [obj]
     end
+
+    def build_field_query(fields, conditions)
+      and_conditions = fields.map {|field|
+        queries = conditions.map {|term|
+          term.dup.tap {|obj|
+            obj.field = field
+          }
+        }
+        MustQueries.new(queries)
+      }
+      ShouldQueries.new(and_conditions)
+    end
   end
 
   refine Parslet::Context do
@@ -201,6 +213,17 @@ class ElasticSearchQueryTransformer < Parslet::Transform
     Terms.new(to_a(values))
   }
 
+
+  # and_conditions単体のhash
+  # => field指定無しの場合
+  # 予め決めたfield_listを設定しておく
+  rule(and_conditions: subtree(:conditions)) {
+    build_field_query(
+      ["TODO_default_field1", "TODO_default_field2"],
+      to_a(conditions)
+    )
+  }
+
   # ここがメイン部分
   #   field: 検索条件
   # の部分を処理する。
@@ -222,15 +245,16 @@ class ElasticSearchQueryTransformer < Parslet::Transform
   ) {
     # p [:and_cond, x, y, y.class]
 
-    and_conditions = to_a(fields).map {|field|
-      queries = to_a(conditions).map {|term|
-        term.dup.tap {|obj|
-          obj.field = field
-        }
-      }
-      MustQueries.new(queries)
-    }
-    ShouldQueries.new(and_conditions)
+    build_field_query(to_a(fields), to_a(conditions))
+    # and_conditions = to_a(fields).map {|field|
+    #   queries = to_a(conditions).map {|term|
+    #     term.dup.tap {|obj|
+    #       obj.field = field
+    #     }
+    #   }
+    #   MustQueries.new(queries)
+    # }
+    # ShouldQueries.new(and_conditions)
   }
 
   rule(and_queries: subtree(:queries)) {
@@ -241,12 +265,12 @@ end
 
 raw = STDIN.read.chomp
 # puts "------------------------ raw query"
-# puts raw
+puts raw
 # 
 begin
   parsed = QueryParser.new.parse(raw)
   # puts "------------------------ raw => syntax tree"
-  # pp parsed
+  pp parsed
 rescue Parslet::ParseFailed => failure
   puts failure.parse_failure_cause.ascii_tree
   raise failure
@@ -254,7 +278,7 @@ end
 # 
 # puts "------------------------ syntax tree => es query"
 ast = ElasticSearchQueryTransformer.new.apply(parsed)
-#pp [:ast, ast]
+pp [:ast, ast]
 
 #パース後のトップレベルに条件追加
 #ast.add_must_condition(Terms.new(%w(寄席の客), 'content'))
