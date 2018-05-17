@@ -61,6 +61,7 @@ end
 # }
 MustQueries = Struct.new(:queries) do
   def eval
+    return queries.first.eval if queries.size == 1
     # p [:Must, queries.size, queries]
     {
       bool: {
@@ -77,6 +78,9 @@ end
 # }
 ShouldQueries = Struct.new(:queries) do
   def eval
+    # コンテナ系(複数の条件をまとめる系)のクエリは複数クエリないと意味がないので、
+    # 一つしかクエリがない場合は直接それを返す
+    return queries.first.eval if queries.size == 1
     # p [:Should, queries.size, queries]
     {
       bool: {
