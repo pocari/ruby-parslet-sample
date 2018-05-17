@@ -38,10 +38,17 @@ class QueryParser < BaseParser
   rule(:identifier) { match('[_0-9a-zA-Z.]').repeat(1) }
 end
 
-EsQuery = Struct.new(:bool) do
+EsQuery = Struct.new(:bool, :from, :size) do
+  def initialize(bool, from = 0, size = 50)
+    super
+  end
+
   def eval
     # p [:EsQuery, bool]
+    # とりあえずmax先頭1000件にしておく
     {
+      from: from,
+      size: size,
       query: bool.eval
     }
   end
@@ -127,7 +134,7 @@ class ElasticSearchQueryTransformer < Parslet::Transform
   # }
   # に変換する。fieldは上のレベルなので、あとでセットしてもらう
   rule(or_conditions: subtree(:values)) {
-    p [:or_conditions, values]
+    # p [:or_conditions, values]
     value2 = values.is_a?(Array) ? values : [values]
     Terms.new(value2)
   }
@@ -140,12 +147,13 @@ class ElasticSearchQueryTransformer < Parslet::Transform
   #     title: わろてんか
   #   - 複数カラムのorパターン  title または subtitleがわろてんかにまっちする
   #     title,subtile: わろてんか
-  #   - andパターン  titleが わろてんか かつ 5分 にまっちする
+  #   - andパターン  titleが わろてんか かつ 5分 にマッチする
   #     title,subtile: わろてんか and 5分
-  #   - andとorの複合パターン(
+  #   - andとorの複合パターン
   #     この際andの方が優先度低いので注意(a b and cが (a b) and (c) とみなされる)
   #     ただし、優先度に関してはパーサ側で考慮しているので、ここでは特に気にしなくても良い
-  #     title: わろてんか 
+  #     タイトルに「(半分 または わろてんかが含まれる) かつ (5分) が含まれる」
+  #     title: 半分 わろてんか and 5分
   rule(
     field_list: subtree(:x),
     and_conditions: subtree(:y)
@@ -177,13 +185,13 @@ class ElasticSearchQueryTransformer < Parslet::Transform
 end
 
 raw = STDIN.read.chomp
-puts "------------------------ raw query"
-puts raw
+# puts "------------------------ raw query"
+# puts raw
 # 
 begin
   parsed = QueryParser.new.parse(raw)
-  puts "------------------------ raw => syntax tree"
-  pp parsed
+  # puts "------------------------ raw => syntax tree"
+  # pp parsed
 rescue Parslet::ParseFailed => failure
   puts failure.parse_failure_cause.ascii_tree
   raise failure
