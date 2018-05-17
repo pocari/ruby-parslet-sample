@@ -46,11 +46,34 @@ EsQuery = Struct.new(:bool, :from, :size) do
   def eval
     # p [:EsQuery, bool]
     # とりあえずmax先頭1000件にしておく
+
     {
       from: from,
       size: size,
       query: bool.eval
     }
+  end
+
+  def add_must_condition(condition)
+    case bool
+    when MustQueries
+      bool.queries << condition
+    when Terms, ShouldQueries
+      bool = MustQueries.new([bool, condition])
+    else
+      bool = condition
+    end
+  end
+
+  def add_should_condition(condition)
+    case bool
+    when ShouldQueries
+      bool.queries << condition
+    when Terms, MulstQueries
+      bool = ShouldQueries.new([bool, condition])
+    else
+      bool = condition
+    end
   end
 end
 
@@ -205,4 +228,7 @@ end
 ast = ElasticSearchQueryTransformer.new.apply(parsed)
 #pp [:ast, ast]
 
+#パース後のトップレベルに条件追加
+#ast.add_must_condition(Terms.new(%w(寄席の客), 'content'))
+#pp [:ast, ast]
 puts ast.eval.to_json
