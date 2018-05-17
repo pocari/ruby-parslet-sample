@@ -97,16 +97,55 @@ class ElasticSearchQueryTransformer < Parslet::Transform
   def self.simple_to_s_rule(sym)
     rule(sym => simple(:x)) { x.to_s }
   end
+
+  # 単一の文字列になるような値はそこまでシンプルにしておく
+  # 例) 検索文字列は単純な文字列の場合と、quoteされた文字列の場合があり
+  #    それぞれ構文木上は、
+  #      あああ   => { condition: 'あああ'          }
+  #      'いいい' => { condition: { str: 'いいい' } }
+  #    となるが、ASTの段階では、単純に
+  #        あああ
+  #        いいい
+  #    で十分なので、その状態に変換する(fieldも同じ)
   simple_to_s_rule(:condition)
   simple_to_s_rule(:field)
   simple_to_s_rule(:str)
+
+  # topレベル直下の条件の配列はすべてand(es上はmust)でつなぐので、
+  # { and_query => object }
+  # はobjectだけあれば、わかるため、これもシンプルにする
   rule(and_query: subtree(:x)) { x }
-  rule(or_conditions: subtree(:tree)) {
-    # p [:or_conditions, tree]
-    tree2 = tree.is_a?(Array) ? tree : [tree]
-    Terms.new(tree2)
+
+  # 「title: aa bb cc」で、titleがaaまたはbbまたはccにマッチする
+  # の意味になるので、esの
+  # terms: {
+  #   field: [
+  #     val1,
+  #     val2,
+  #     ...
+  #   ]
+  # }
+  # に変換する。fieldは上のレベルなので、あとでセットしてもらう
+  rule(or_conditions: subtree(:values)) {
+    p [:or_conditions, values]
+    value2 = values.is_a?(Array) ? values : [values]
+    Terms.new(value2)
   }
 
+  # ここがメイン部分
+  #   field: 検索条件
+  # の部分を処理する。
+  # 例)
+  #   - 一番シンブルパターン titleが わろてんか にマッチする
+  #     title: わろてんか
+  #   - 複数カラムのorパターン  title または subtitleがわろてんかにまっちする
+  #     title,subtile: わろてんか
+  #   - andパターン  titleが わろてんか かつ 5分 にまっちする
+  #     title,subtile: わろてんか and 5分
+  #   - andとorの複合パターン(
+  #     この際andの方が優先度低いので注意(a b and cが (a b) and (c) とみなされる)
+  #     ただし、優先度に関してはパーサ側で考慮しているので、ここでは特に気にしなくても良い
+  #     title: わろてんか 
   rule(
     field_list: subtree(:x),
     and_conditions: subtree(:y)
@@ -138,13 +177,13 @@ class ElasticSearchQueryTransformer < Parslet::Transform
 end
 
 raw = STDIN.read.chomp
-# puts "------------------------ raw query"
-# puts raw
+puts "------------------------ raw query"
+puts raw
 # 
 begin
   parsed = QueryParser.new.parse(raw)
-#  puts "------------------------ raw => syntax tree"
-#  pp parsed
+  puts "------------------------ raw => syntax tree"
+  pp parsed
 rescue Parslet::ParseFailed => failure
   puts failure.parse_failure_cause.ascii_tree
   raise failure
