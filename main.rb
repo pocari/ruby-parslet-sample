@@ -127,7 +127,43 @@ Terms = Struct.new(:values, :field) do
   end
 end
 
+# Transformのruleの中のselfはParslet::Contextオブジェクトなので、
+# ruleの中での共通処理をTransformerクラスに定義しても使えない
+#
+# それ系のメソッドはこのmoduleに定義して仕込む
+#
+# またruleのブロックにブロック引数がついた場合はコンテキストが変わって
+# transfomerクラス自身になるので、同時にTransformerクラスのクラスメソッド
+# にもこのMethods moduleを仕込んでおけばどの書き方でも使えるようになる
+# (この場合、ruleメソッドの引数でマッチした変数はローカル変数でなく
+# ブロック引数にセットされているので注意
+#
+# 特異メソッドに仕込むのでincludeでなく、extendになるので注意
+#
+module CustomMethodsInRule
+
+  # ruleブロック内で使いたい共通メソッドはこのmoduleに定義する
+  module Methods
+    def to_a(obj)
+      # [obj]はArray(obj)にしないように。(objがhashの時に挙動が変わる)
+      obj&.is_a?(Array) ? obj : [obj]
+    end
+  end
+
+  refine Parslet::Context do
+    include Methods
+  end
+end
+
 class ElasticSearchQueryTransformer < Parslet::Transform
+  # ruleブロックに引数（変数情報）がある場合
+  # => selfがElasticSearchQueryTransformerの場合の考慮
+  extend CustomMethodsInRule::Methods
+
+  # ruleブロックに引数がない場合
+  # => selfがParslet::Contextの時用の考慮
+  using CustomMethodsInRule
+
   def self.simple_to_s_rule(sym)
     rule(sym => simple(:x)) { x.to_s }
   end
@@ -162,8 +198,7 @@ class ElasticSearchQueryTransformer < Parslet::Transform
   # に変換する。fieldは上のレベルなので、あとでセットしてもらう
   rule(or_conditions: subtree(:values)) {
     # p [:or_conditions, values]
-    value2 = values.is_a?(Array) ? values : [values]
-    Terms.new(value2)
+    Terms.new(to_a(values))
   }
 
   # ここがメイン部分
@@ -182,17 +217,13 @@ class ElasticSearchQueryTransformer < Parslet::Transform
   #     タイトルに「(半分 または わろてんかが含まれる) かつ (5分) が含まれる」
   #     title: 半分 わろてんか and 5分
   rule(
-    field_list: subtree(:x),
-    and_conditions: subtree(:y)
+    field_list: subtree(:fields),
+    and_conditions: subtree(:conditions)
   ) {
     # p [:and_cond, x, y, y.class]
 
-    # Array(y) だと結果が変わるので注意
-    xx = x.is_a?(Array) ? x : [x]
-    yy = y.is_a?(Array) ? y : [y]
-
-    and_conditions = xx.map {|field|
-      queries = yy.map {|term|
+    and_conditions = to_a(fields).map {|field|
+      queries = to_a(conditions).map {|term|
         term.dup.tap {|obj|
           obj.field = field
         }
@@ -204,10 +235,7 @@ class ElasticSearchQueryTransformer < Parslet::Transform
 
   rule(and_queries: subtree(:queries)) {
     #p [:and_queries, queries]
-    normalized = queries.is_a?(Array) ? queries : [queries]
-    eq = EsQuery.new(MustQueries.new(normalized))
-    # p [:es_query, eq]
-    eq
+    EsQuery.new(MustQueries.new(to_a(queries)))
   }
 end
 
